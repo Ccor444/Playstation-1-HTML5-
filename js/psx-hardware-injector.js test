@@ -1,0 +1,120 @@
+// ==========================================
+// PSX Hardware Injector – compatível com RAM expandida
+// ==========================================
+(function(){
+  const DEFAULT = {
+    pollInterval: 50,
+    pollTimeout: 10000
+  };
+  let opts = Object.assign({}, DEFAULT);
+
+  const L = (...a) => console.log('[PSX-HW-INJ]', ...a);
+  const W = (...a) => console.warn('[PSX-HW-INJ]', ...a);
+  const E = (...a) => console.error('[PSX-HW-INJ]', ...a);
+
+  function findGlobals() {
+    const names = ['cpu','dma','rtc','spu','joy','cdr','gpu','mdc','psx','ram','map','map8','map16'];
+    const found = {};
+    for (const n of names) {
+      if (window[n]) found[n] = window[n];
+    }
+    return found;
+  }
+
+  function applyInjector(found) {
+    if (!found.ram) { W('RAM não encontrada, aguarde PSXInjectorRAM rodar primeiro'); return false; }
+
+    const ramView = found.ram instanceof DataView ? found.ram : new DataView(found.ram.buffer);
+    const map8 = found.map8 || new Uint8Array(ramView.buffer);
+    const map16 = found.map16 || new Int16Array(ramView.buffer);
+    const map32 = found.map || new Int32Array(ramView.buffer);
+
+    const ramMask = window.__PSX_RAM_INJECTOR__?.ramMask || (ramView.byteLength - 1);
+
+    // -----------------------------
+    // Funções auxiliares para leitura de hardware
+    // -----------------------------
+    function hwRead8(addr) {
+      const reg = addr & 0x3fff;
+      if (reg >= 0x1080 && reg < 0x1100) return found.dma?.rd08?.(reg) || 0;
+      if (reg >= 0x1100 && reg < 0x1130) return found.rtc?.rd32?.(reg) || 0;
+      if (reg >= 0x1C00 && reg < 0x2000) return found.spu?.getInt16?.(reg) || 0;
+      switch (addr & 0x3fff) {
+        case 0x1040: return found.joy?.rd08r1040?.() || 0;
+        case 0x1800: return found.cdr?.rd08r1800?.() || 0;
+        case 0x1801: return found.cdr?.rd08r1801?.() || 0;
+        case 0x1802: return found.cdr?.rd08r1802?.() || 0;
+        case 0x1803: return found.cdr?.rd08r1803?.() || 0;
+        case 0x1814: return found.gpu?.rd32r1814?.() || 0;
+        case 0x1824: return found.mdc?.rd32r1824?.() || 0;
+      }
+      return map8[addr & ramMask] || 0;
+    }
+
+    function hwWrite8(addr, data) {
+      const reg = addr & 0x3fff;
+      if (reg >= 0x1080 && reg < 0x1100) { found.dma?.wr08?.(reg,data); return; }
+      if (reg >= 0x1100 && reg < 0x1130) { found.rtc?.wr32?.(reg,data); return; }
+      if (reg >= 0x1C00 && reg < 0x2000) { found.spu?.setInt16?.(reg,data); return; }
+      switch (addr & 0x3fff) {
+        case 0x1040: found.joy?.wr08r1040?.(data); return;
+        case 0x1800: found.cdr?.wr08r1800?.(data); return;
+        case 0x1801: found.cdr?.wr08r1801?.(data); return;
+        case 0x1802: found.cdr?.wr08r1802?.(data); return;
+        case 0x1803: found.cdr?.wr08r1803?.(data); return;
+      }
+      map8[addr & ramMask] = data & 0xFF;
+    }
+
+    function hwRead16(addr) { return hwRead8(addr) | (hwRead8(addr+1)<<8); }
+    function hwWrite16(addr,data) { hwWrite8(addr,data&0xFF); hwWrite8(addr+1,(data>>8)&0xFF); }
+
+    function hwRead32(addr) { return hwRead16(addr) | (hwRead16(addr+2)<<16); }
+    function hwWrite32(addr,data) { hwWrite16(addr,data&0xFFFF); hwWrite16(addr+2,(data>>16)&0xFFFF); }
+
+    // -----------------------------
+    // Substitui hardware global
+    // -----------------------------
+    window.hwRead8 = hwRead8;
+    window.hwWrite8 = hwWrite8;
+    window.hwRead16 = hwRead16;
+    window.hwWrite16 = hwWrite16;
+    window.hwRead32 = hwRead32;
+    window.hwWrite32 = hwWrite32;
+
+    L('Hardware injector instalado com sucesso — compatível com RAM expandida');
+    return true;
+  }
+
+  // -----------------------------
+  // Poller para aguardar RAM estar disponível (PSXInjectorRAM)
+  // -----------------------------
+  function poll() {
+    const start = performance.now();
+    const id = setInterval(() => {
+      if (performance.now() - start > opts.pollTimeout) {
+        clearInterval(id);
+        W('timeout — RAM ainda não exposta para hardware injector');
+        return;
+      }
+      const found = findGlobals();
+      if (found.ram) {
+        clearInterval(id);
+        applyInjector(found);
+      } else {
+        L('aguardando RAM ser exposta pelo PSXInjectorRAM...');
+      }
+    }, opts.pollInterval);
+  }
+
+  // -----------------------------
+  // API pública
+  // -----------------------------
+  window.PSXInjectorHW = {
+    configure: (o={}) => { opts = Object.assign(opts,o); L('config atualizado', opts); },
+    run: () => poll()
+  };
+
+  L('PSX Hardware Injector carregado — aguardando RAM...');
+  setTimeout(poll,20);
+})();

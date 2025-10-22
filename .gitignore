@@ -1,0 +1,3 @@
+echo "teste.py" >> .gitignore
+git add .gitignore
+git commit -m "Ignorando arquivo com token"
