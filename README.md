@@ -1,4 +1,8 @@
 # Playstation 1 HTML5
+🚧 **Aviso Importante**  
+O emulador ainda **não carrega jogos online diretamente pelo navegador** — há um bug no carregamento remoto.  
+Entretanto, **funciona perfeitamente em modo local**:  
+basta abrir o arquivo `index.html` direto no seu computador ou celular que o sistema inicializa normalmente.
 
 Este projeto visa emular o console PlayStation 1 diretamente no navegador, utilizando tecnologias web modernas.
 
